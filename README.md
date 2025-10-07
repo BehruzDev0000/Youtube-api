@@ -44,17 +44,65 @@ $ npm run start:dev
 $ npm run start:prod
 ```
 
-## Run tests
+##API Endpoints
+1) GET (query with params)
+GET http://localhost:3000/api/video?url=https://www.youtube.com/watch?v=G33j5Qi4rE8
 
-```bash
-# unit tests
-$ npm run test
+2) POST (JSON with Body)
+   POST http://localhost:3000/api/video
+Content-Type: application/json
 
-# e2e tests
-$ npm run test:e2e
+{"url":"https://youtu.be/G33j5Qi4rE8"}
 
-# test coverage
-$ npm run test:cov
+3) CURL Examples
+   # GET
+curl "http://localhost:3000/api/video?url=https://www.youtube.com/watch?v=G33j5Qi4rE8"
+
+# POST
+curl -X POST "http://localhost:3000/api/video" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://youtu.be/G33j5Qi4rE8"}'
+Short answer sample
+```
+{
+  "errorId": "Success",
+  "type": "video",
+  "id": "G33j5Qi4rE8",
+  "title": "The Creation Of The Universe | Universe | BBC Earth",
+  "description": "This is the story of creation, as told by science. ...",
+  "channel": {
+    "type": "channel",
+    "id": "UCwmZiChSryoWQCZMIQezgTg",
+    "name": "BBC Earth",
+    "handle": "@bbcearth",
+    "isVerified": true,
+    "subscriberCountText": "14M subscribers"
+  },
+  "lengthSeconds": 173,
+  "viewCount": 379123,
+  "likeCount": 6674,
+  "publishedTime": "2021-11-29T10:00:05-08:00",
+  "thumbnails": [
+    { "url": "https://i.ytimg.com/vi_webp/G33j5Qi4rE8/maxresdefault.webp", "width": 1920, "height": 1080 }
+  ],
+  "videos": {
+    "errorId": "Success",
+    "items": [
+      {
+        "url": "https://...itag=137...",
+        "mimeType": "video/mp4; codecs=\"avc1.640028\"",
+        "extension": "mp4",
+        "quality": "1080p",
+        "width": 1920,
+        "height": 1080,
+        "hasAudio": false
+      }
+    ]
+  },
+  "audios": { "errorId": "Success", "items": [ /* ... */ ] },
+  "subtitles": { "errorId": "Success", "items": [ { "code": "en", "text": "English (auto-generated)", "url": "https://www.youtube.com/api/timedtext?..." } ] },
+  "related": { "items": [ /* ... */ ] }
+}
 ```
 
 ## Deployment
