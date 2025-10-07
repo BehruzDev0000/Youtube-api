@@ -45,16 +45,15 @@ $ npm run start:prod
 ```
 
 ##API Endpoints
-1) GET (query with params)
-GET ```http://localhost:3000/api/video?url=https://www.youtube.com/watch?v=G33j5Qi4rE8```
+## 1) GET (query with params)
+## GET ```http://localhost:3000/api/video?url=https://www.youtube.com/watch?v=G33j5Qi4rE8```
 
-2) POST (JSON with Body)
-   ```POST http://localhost:3000/api/video
+##2) POST (JSON with Body)
+   ## POST  ```http://localhost:3000/api/video
 Content-Type: application/json
-
 {"url":"https://youtu.be/G33j5Qi4rE8"}```
 
-3) CURL Examples
+###3) CURL Examples
    # GET
 ```curl "http://localhost:3000/api/video?url=https://www.youtube.com/watch?v=G33j5Qi4rE8"```
 
