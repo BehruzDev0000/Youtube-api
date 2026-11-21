@@ -1,148 +1,40 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# YouTube video information API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+NestJS/Fastify worker and an optional Vercel HTTP proxy. Both expose `GET /api/video?url=...` and `POST /api/video` with `{ "url": "..." }`. The worker uses yt-dlp to retrieve public video metadata; no video is downloaded. YouTube may block datacenter IPs, require authentication, or change its extraction requirements.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Run locally
 
-## Description
+Requirements: Node.js 20 or later, and a current `yt-dlp` executable on `PATH` (or set `YT_DLP_PATH` to its absolute path). For example, install yt-dlp using its official instructions; Python and/or an external JavaScript runtime may be required for current YouTube extraction. Keep yt-dlp updated.
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
-
-## Project setup
-
-```bash
-$ npm install
+```sh
+npm ci
+npm run build
+npm run start:prod
+curl --get 'http://localhost:3003/api/video' --data-urlencode 'url=https://youtu.be/G33j5Qi4rE8'
+curl -X POST 'http://localhost:3003/api/video' -H 'content-type: application/json' -d '{"url":"https://youtu.be/G33j5Qi4rE8"}'
 ```
 
-## Compile and run the project
+Set `PORT` to override 3003. Only individual `youtube.com/watch?v=...` and `youtu.be/...` URLs with an 11-character ID are accepted; playlist parameters are rejected. Tracking parameters are discarded. Direct worker POST currently returns 201; the Vercel proxy normalizes successful responses to 200. Validation errors return 400, overload returns 429/503, extractor failures 502, and extraction timeouts 504. These do not expose yt-dlp stderr.
 
-```bash
-# development
-$ npm run start
+The response includes video and channel metadata, format URLs, captions and empty related items where unavailable. Missing data is null or absent, not inferred. `publishedTime` is UTC ISO when a timestamp is available, otherwise the upload date in `YYYY-MM-DD`. Format/caption `expiration` is the earliest known URL `expire` query parameter, or null if none is available; it is not a guarantee that a URL will remain usable. Manual and automatic captions are distinguished. Signed media URLs can expire, and cache entries live at most one minute and no later than known expiry minus five seconds.
 
-# watch mode
-$ npm run start:dev
+## Tests and CI
 
-# production mode
-$ npm run start:prod
+```sh
+npm run lint
+npm test -- --runInBand
+npm run test:e2e -- --runInBand
+npm run build
 ```
 
-##API Endpoints
-## 1) GET (query with params)
-## GET 
-```http://localhost:3000/api/video?url=https://www.youtube.com/watch?v=G33j5Qi4rE8```
+Tests use a fake local yt-dlp executable; they do not prove YouTube connectivity. CI runs these checks on Node 22. `npm run lint:fix` modifies files; `npm run lint` does not.
 
-## 2) POST (JSON with Body)
-   ## POST  
-   ```http://localhost:3000/api/video
-Content-Type: application/json
-{"url":"https://youtu.be/G33j5Qi4rE8"}```
+## Deployment architecture
 
-## ) CURL Examples
-   # GET
-```curl "http://localhost:3000/api/video?url=https://www.youtube.com/watch?v=G33j5Qi4rE8"```
+The Vercel function in `api/video.ts` validates input and forwards requests to a separately hosted worker over HTTPS. yt-dlp is not bundled in the function: a Vercel Node function has a bounded duration, an ephemeral writable `/tmp`, a read-only deployment filesystem, and deployment tracing/size constraints; a system Python/yt-dlp binary is not guaranteed. YouTube extraction may require frequent yt-dlp updates and a JS runtime, and successful extraction from a cloud IP is not guaranteed. The repository's `Dockerfile` packages Node, Python and a pinned yt-dlp for a long-running container host, but it must be built, maintained, and verified on that host. This is not a complete production deployment until a worker is provisioned and tested.
 
-# POST
-```curl -X POST "http://localhost:3000/api/video" \
-  -H "Content-Type: application/json" \
-  -d '{"url":"https://youtu.be/G33j5Qi4rE8"}'
-```
-Short answer sample
-```
-{
-  "errorId": "Success",
-  "type": "video",
-  "id": "G33j5Qi4rE8",
-  "title": "The Creation Of The Universe | Universe | BBC Earth",
-  "description": "This is the story of creation, as told by science. ...",
-  "channel": {
-    "type": "channel",
-    "id": "UCwmZiChSryoWQCZMIQezgTg",
-    "name": "BBC Earth",
-    "handle": "@bbcearth",
-    "isVerified": true,
-    "subscriberCountText": "14M subscribers"
-  },
-  "lengthSeconds": 173,
-  "viewCount": 379123,
-  "likeCount": 6674,
-  "publishedTime": "2021-11-29T10:00:05-08:00",
-  "thumbnails": [
-    { "url": "https://i.ytimg.com/vi_webp/G33j5Qi4rE8/maxresdefault.webp", "width": 1920, "height": 1080 }
-  ],
-  "videos": {
-    "errorId": "Success",
-    "items": [
-      {
-        "url": "https://...itag=137...",
-        "mimeType": "video/mp4; codecs=\"avc1.640028\"",
-        "extension": "mp4",
-        "quality": "1080p",
-        "width": 1920,
-        "height": 1080,
-        "hasAudio": false
-      }
-    ]
-  },
-  "audios": { "errorId": "Success", "items": [ /* ... */ ] },
-  "subtitles": { "errorId": "Success", "items": [ { "code": "en", "text": "English (auto-generated)", "url": "https://www.youtube.com/api/timedtext?..." } ] },
-  "related": { "items": [ /* ... */ ] }
-}
-```
+1. Deploy the Dockerfile to a container service with outbound HTTPS access to YouTube, TLS termination, and a public HTTPS address. Configure `WORKER_SECRET` to a long random value in the worker's secret manager. Restrict network access to the worker where possible. **Without this variable the worker is unauthenticated in local development; it refuses to start when `NODE_ENV=production` is set.** Worker secret checks use a constant-time comparison for equal-length values.
+2. Create or select the appropriate Vercel project and deploy this repository. Configure `WORKER_URL` to the worker's HTTPS origin and `WORKER_SECRET` to the same secret in Vercel's encrypted environment variables. Redeploy after setting them. Do not commit secrets. The proxy returns 503 if either is missing, rejects redirects, and never sends the secret to clients.
+3. Test GET and POST with an accessible video, invalid input, an unavailable video, and inspect worker and Vercel logs. Ensure Vercel Function duration supports the configured 30 seconds. Configure edge/WAF rate limiting and monitoring before exposing the API publicly.
 
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
-
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+`WORKER_URL` is a trusted operator-controlled HTTPS origin, not a user input; do not set it to untrusted hosts. Both the worker and the proxy have bounded **process-local** rate limits, and worker concurrency/cache/in-flight deduplication are per process, not shared across replicas or serverless instances. A reverse proxy can make all worker requests appear to come from one IP; configure deployment-level distributed per-client limiting rather than relying on these limits. Configure resource and network isolation for the worker. No cookies or credentials are supplied to yt-dlp. Restrict CORS if a narrower browser access policy is required.

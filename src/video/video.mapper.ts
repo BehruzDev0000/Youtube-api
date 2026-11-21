@@ -1,125 +1,161 @@
-// src/video/video.mapper.ts
-export function mapYtDlpToApi(info: any): any {
-  const expiration = Math.floor(Date.now() / 1000) + 3600;
+/* yt-dlp is an external program; its JSON varies by extractor and video. */
+type Track = { url?: string; name?: string; ext?: string };
+type Format = {
+  url?: string;
+  vcodec?: string;
+  acodec?: string;
+  ext?: string;
+  format_note?: string;
+  format_id?: string;
+  width?: number;
+  height?: number;
+  filesize?: number;
+  filesize_approx?: number;
+  protocol?: string;
+};
+type Info = {
+  id?: string;
+  title?: string;
+  description?: string;
+  channel_id?: string;
+  channel?: string;
+  channel_url?: string;
+  channel_follower_count?: number;
+  duration?: number;
+  view_count?: number;
+  like_count?: number;
+  upload_date?: string;
+  timestamp?: number;
+  is_live?: boolean;
+  was_live?: boolean;
+  availability?: string;
+  thumbnails?: { url?: string; width?: number; height?: number }[];
+  formats?: Format[];
+  subtitles?: Record<string, Track[]>;
+  automatic_captions?: Record<string, Track[]>;
+};
 
-  const thumbnails =
-    (info?.thumbnails || []).map((t: any) => ({
-      url: t.url,
-      width: t.width,
-      height: t.height,
-    })) || [];
-
-  const channel = {
-    type: 'channel',
-    id: info?.channel_id,
-    name: info?.channel,
-    handle: null,
-    isVerified: null,
-    isVerifiedArtist: false,
-    subscriberCountText: null,
-    avatar: [],
-  };
-
-  const durationSec = info?.duration ?? 0;
-
-  const videoItems: any[] = [];
-  const audioItems: any[] = [];
-
-  for (const f of info?.formats || []) {
-    const hasVideo = f.vcodec && f.vcodec !== 'none';
-    const hasAudio = f.acodec && f.acodec !== 'none';
-
-    const item = {
-      url: f.url,
-      lengthMs: durationSec ? Math.round(durationSec * 1000) : null,
-      mimeType: f.mime || f.mime_type,
-      extension: f.ext,
-      lastModified: null,
-      size: f.filesize || f.filesize_approx || null,
-      sizeText: f.filesize ? formatBytes(f.filesize) : (f.filesize_approx ? formatBytes(f.filesize_approx) : null),
-      hasAudio,
-      quality: f.format_note || f.format_id,
-      width: f.width,
-      height: f.height,
-      itag: f.format_id,
-    };
-
-    if (hasVideo) videoItems.push(item);
-    else if (hasAudio) audioItems.push(item);
+function expiry(url: string | undefined): number | null {
+  try {
+    const value = new URL(url || '').searchParams.get('expire');
+    const n = Number(value);
+    return value && Number.isSafeInteger(n) && n > 0 ? n : null;
+  } catch {
+    return null;
   }
-
-  const subtitlesItems: any[] = [];
-  const autoCaps = info?.automatic_captions || {};
-  for (const lang of Object.keys(autoCaps)) {
-    const tracks = autoCaps[lang];
-    if (tracks?.length) {
-      subtitlesItems.push({
-        url: tracks[0].url,
-        code: lang,
-        text: `${lang} (auto-generated)`,
-      });
+}
+function earliest(urls: (string | undefined)[]): number | null {
+  const values = urls.map(expiry).filter((n): n is number => n !== null);
+  return values.length ? Math.min(...values) : null;
+}
+function mime(f: Format): string | null {
+  const types: Record<string, string> = {
+    mp4: 'video/mp4',
+    webm: f.vcodec && f.vcodec !== 'none' ? 'video/webm' : 'audio/webm',
+    m4a: 'audio/mp4',
+    mp3: 'audio/mpeg',
+    opus: 'audio/opus',
+  };
+  return f.ext ? (types[f.ext] ?? null) : null;
+}
+export function mapYtDlpToApi(raw: unknown) {
+  if (
+    !raw ||
+    typeof raw !== 'object' ||
+    typeof (raw as Info).id !== 'string' ||
+    (raw as Info).id!.length === 0
+  )
+    throw new Error('Invalid video metadata');
+  const info = raw as Info;
+  const formats = Array.isArray(info.formats) ? info.formats : [];
+  const items = formats
+    .filter((f) => typeof f.url === 'string')
+    .map((f) => ({
+      url: f.url,
+      lengthMs:
+        typeof info.duration === 'number'
+          ? Math.round(info.duration * 1000)
+          : null,
+      mimeType: mime(f),
+      extension: f.ext ?? null,
+      size: f.filesize ?? f.filesize_approx ?? null,
+      hasAudio: !!f.acodec && f.acodec !== 'none',
+      quality: f.format_note ?? f.format_id ?? null,
+      width: f.width ?? null,
+      height: f.height ?? null,
+      itag: f.format_id ?? null,
+      protocol: f.protocol ?? null,
+      hasVideo: !!f.vcodec && f.vcodec !== 'none',
+    }));
+  const videos = items.filter((i) => i.hasVideo);
+  const audios = items.filter((i) => !i.hasVideo && i.hasAudio);
+  const subtitles: {
+    url: string;
+    code: string;
+    text: string;
+    automatic: boolean;
+    extension: string | null;
+  }[] = [];
+  for (const [automatic, tracks] of [
+    [false, info.subtitles],
+    [true, info.automatic_captions],
+  ] as const) {
+    for (const [code, entries] of Object.entries(tracks || {})) {
+      if (!Array.isArray(entries)) continue;
+      for (const track of entries)
+        if (track.url)
+          subtitles.push({
+            url: track.url,
+            code,
+            text: track.name ?? code,
+            automatic,
+            extension: track.ext ?? null,
+          });
     }
   }
-
-  const relatedItems =
-    (info?.related_videos || []).map((e: any) => ({
-      type: 'video',
-      id: e.id,
-      title: e.title,
-      channel: {
-        type: 'channel',
-        id: e.channel_id,
-        name: e.uploader,
-        handle: null,
-        isVerified: null,
-        isVerifiedArtist: false,
-        avatar: [],
-      },
-      isLiveNow: false,
-      lengthText: e.duration ? secToHms(e.duration) : null,
-      viewCountText: e.view_count ? `${e.view_count} views` : null,
-      publishedTimeText: null,
-      thumbnails: e.thumbnails || [],
-    })) || [];
-
+  const date = info.upload_date;
+  const publishedTime =
+    typeof info.timestamp === 'number' && Number.isFinite(info.timestamp)
+      ? new Date(info.timestamp * 1000).toISOString()
+      : date && /^\d{8}$/.test(date)
+        ? `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`
+        : null;
   return {
     errorId: 'Success',
     type: 'video',
-    id: info?.id,
-    title: info?.title,
-    description: info?.description,
-    channel,
-    lengthSeconds: durationSec ? Math.round(durationSec) : 0,
-    viewCount: info?.view_count ?? null,
-    likeCount: null, 
-    publishedTime: info?.upload_date ?? null, 
-    isLiveStream: !!info?.is_live,
-    isLiveNow: !!info?.is_live,
-    isRegionRestricted: null,
-    isUnlisted: null,
-    isCommentDisabled: null,
-    commentCountText: null,
-    thumbnails,
-    musicCredits: [],
-    videos: { errorId: 'Success', expiration, items: videoItems },
-    audios: { errorId: 'Success', expiration, items: audioItems },
-    subtitles: { errorId: 'Success', expiration, items: subtitlesItems },
-    related: { nextToken: null, items: relatedItems },
+    id: info.id!,
+    title: info.title ?? null,
+    description: info.description ?? null,
+    channel: {
+      type: 'channel',
+      id: info.channel_id ?? null,
+      name: info.channel ?? null,
+      url: info.channel_url ?? null,
+      subscriberCount: info.channel_follower_count ?? null,
+    },
+    lengthSeconds: info.duration ?? null,
+    viewCount: info.view_count ?? null,
+    likeCount: info.like_count ?? null,
+    publishedTime,
+    isLiveStream: Boolean(info.is_live || info.was_live),
+    isLiveNow: Boolean(info.is_live),
+    isUnlisted: info.availability ? info.availability === 'unlisted' : null,
+    thumbnails: info.thumbnails ?? [],
+    videos: {
+      errorId: 'Success',
+      expiration: earliest(videos.map((i) => i.url)),
+      items: videos,
+    },
+    audios: {
+      errorId: 'Success',
+      expiration: earliest(audios.map((i) => i.url)),
+      items: audios,
+    },
+    subtitles: {
+      errorId: 'Success',
+      expiration: earliest(subtitles.map((i) => i.url)),
+      items: subtitles,
+    },
+    related: { nextToken: null, items: [] },
   };
-}
-
-function formatBytes(bytes: number): string {
-  if (!bytes) return '0B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${(bytes / Math.pow(k, i)).toFixed(1)}${sizes[i]}`;
-}
-
-function secToHms(s: number): string {
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const ss = Math.floor(s % 60);
-  if (h) return `${h}:${m.toString().padStart(2, '0')}:${ss.toString().padStart(2, '0')}`;
-  return `${m}:${ss.toString().padStart(2, '0')}`;
 }
